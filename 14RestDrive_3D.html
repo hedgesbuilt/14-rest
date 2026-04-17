@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>14 Rest Drive — Hedges Built</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#111;overflow:hidden;font-family:-apple-system,sans-serif}
+#c{display:block;width:100vw;height:100vh}
+#ui{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none}
+#lbl{position:fixed;top:16px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.6);
+  color:#f0ede8;padding:7px 18px;border-radius:20px;font-size:12px;font-weight:500;
+  letter-spacing:.12em;text-transform:uppercase;backdrop-filter:blur(8px)}
+#hint{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.55);
+  color:rgba(255,255,255,.7);padding:9px 16px;border-radius:12px;font-size:11px;
+  line-height:1.8;text-align:center;backdrop-filter:blur(8px)}
+#tod{position:fixed;top:16px;right:16px;background:rgba(0,0,0,.6);color:#f0ede8;
+  padding:10px 14px;border-radius:10px;font-size:11px;backdrop-filter:blur(8px);pointer-events:all}
+#tod label{display:block;margin-bottom:5px;opacity:.65;letter-spacing:.08em}
+#tod input{width:110px;accent-color:#c8a86e;cursor:pointer}
+/* Splash */
+#splash{position:fixed;inset:0;background:rgba(0,0,0,.92);display:flex;flex-direction:column;
+  align-items:center;justify-content:center;z-index:999;cursor:pointer;transition:opacity .5s}
+#splash h1{color:#f0ede8;font-size:clamp(1.6em,5vw,2.8em);font-weight:200;letter-spacing:.15em;margin-bottom:6px}
+.s-sub{color:rgba(240,237,232,.5);font-size:.85em;letter-spacing:.1em;margin:3px 0}
+.s-names{color:rgba(240,237,232,.72);font-size:.9em;letter-spacing:.08em;margin-top:18px}
+.s-btn{margin-top:28px;color:#c8a86e;font-size:.95em;letter-spacing:.1em;
+  border:1px solid rgba(200,168,110,.6);padding:11px 32px;border-radius:24px}
+.s-tip{margin-top:14px;color:rgba(255,255,255,.28);font-size:.72em;line-height:1.9;text-align:center}
+/* Joysticks */
+.joy{position:fixed;bottom:70px;width:100px;height:100px;border-radius:50%;
+  background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.18);
+  display:none;touch-action:none;pointer-events:all}
+#jL{left:18px}#jR{right:18px}
+.knob{position:absolute;top:50%;left:50%;width:40px;height:40px;border-radius:50%;
+  background:rgba(255,255,255,.22);border:1px solid rgba(255,255,255,.35);
+  transform:translate(-50%,-50%);pointer-events:none;transition:transform .05s}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="ui">
+  <div id="lbl">Exterior</div>
+  <div id="hint">
+    <b>W A S D</b> Move &nbsp;·&nbsp; <b>Mouse drag</b> Look &nbsp;·&nbsp; <b>Q / E</b> Fly up / down &nbsp;·&nbsp; <b>Shift</b> Sprint<br>
+    iPad · iPhone: Left joystick = Move &nbsp;·&nbsp; Right joystick = Look
+  </div>
+  <div id="tod"><label>TIME OF DAY</label><input type="range" id="tslide" min="5" max="22" step=".25" value="14"></div>
+</div>
+<div id="splash">
+  <h1>14 REST DRIVE</h1>
+  <div class="s-sub">FLINDERS, VICTORIA</div>
+  <div class="s-names">ANDREW &amp; HELEN</div>
+  <div class="s-sub">LIFESPACES GROUP &nbsp;·&nbsp; HEDGES BUILT</div>
+  <div class="s-btn">ENTER HOME</div>
+  <div class="s-tip">Desktop: click then drag mouse to look · WASD to move<br>iPad / iPhone: use on-screen joysticks</div>
+</div>
+<div class="joy" id="jL"><div class="knob" id="kL"></div></div>
+<div class="joy" id="jR"><div class="knob" id="kR"></div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script>
+// ── helpers ──────────────────────────────────────────────────────────────────
+var isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+
+// Dismiss splash
+var splashEl = document.getElementById('splash');
+function closeSplash(){
+  splashEl.style.opacity = '0';
+  setTimeout(function(){ splashEl.style.display = 'none'; }, 500);
+}
+splashEl.addEventListener('click', closeSplash);
+splashEl.addEventListener('touchend', function(e){ e.preventDefault(); closeSplash(); }, {passive:false});
+
+if(isTouch){
+  document.getElementById('jL').style.display = 'block';
+  document.getElementById('jR').style.display = 'block';
+  document.getElementById('hint').innerHTML =
+    'Left joystick = Move &nbsp;·&nbsp; Right joystick = Look';
+}
+
+// ── Three.js scene ───────────────────────────────────────────────────────────
+var T = THREE; // shorthand
+
+var renderer = new T.WebGLRenderer({ canvas: document.getElementById('c'), antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = T.PCFSoftShadowMap;
+renderer.toneMapping = T.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
+
+var scene = new T.Scene();
+scene.background = new T.Color(0x87b8d4);
+scene.fog = new T.FogExp2(0x87b8d4, 0.009);
+
+var camera = new T.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 300);
+camera.position.set(12, 1.65, 20); // start on south deck, eye height
+
+// ── Procedural textures ───────────────────────────────────────────────────────
+function mkTex(drawFn, w, h, repX, repY) {
+  w = w || 512; h = h || 512; repX = repX || 1; repY = repY || 1;
+  var cv = document.createElement('canvas');
+  cv.width = w; cv.height = h;
+  var ctx = cv.getContext('2d');
+  drawFn(ctx, w, h);
+  var tex = new T.CanvasTexture(cv);
+  tex.wrapS = tex.wrapT = T.RepeatWrapping;
+  tex.repeat.set(repX, repY);
+  return tex;
+}
+
+// Oak timber floor
+var texTimber = mkTex(function(g, w, h) {
+  var bw = w / 6;
+  var baseColors = ['#c8904a','#bf8840','#d09850','#c49048','#b88038','#cc9248'];
+  for (var i = 0; i < 6; i++) {
+    g.fillStyle = baseColors[i]; g.fillRect(i*bw, 0, bw, h);
+    g.strokeStyle = 'rgba(60,30,0,.1)'; g.lineWidth = 0.7;
+    for (var j = 0; j < 25; j++) {
+      var y = Math.random()*h;
+      g.beginPath(); g.moveTo(i*bw, y); g.lineTo((i+1)*bw, y + (Math.random()-.5)*30); g.stroke();
+    }
+  }
+  g.strokeStyle = 'rgba(20,10,0,.45)'; g.lineWidth = 2;
+  for (var i = 1; i < 6; i++) { g.beginPath(); g.moveTo(i*bw,0); g.lineTo(i*bw,h); g.stroke(); }
+}, 512, 128, 5, 1);
+
+// Polished concrete (beige)
+var texConc = mkTex(function(g, w, h) {
+  g.fillStyle = '#d2cdc4'; g.fillRect(0, 0, w, h);
+  for (var i = 0; i < 500; i++) {
+    var v = (Math.random()-.5)*18;
+    g.fillStyle = 'rgba('+(195+v)+','+(188+v)+','+(180+v)+',.28)';
+    var r = Math.random()*3+0.5;
+    g.beginPath(); g.arc(Math.random()*w, Math.random()*h, r, 0, Math.PI*2); g.fill();
+  }
+}, 512, 512, 3, 3);
+
+// Travertine tile (ivory)
+var texTrav = mkTex(function(g, w, h) {
+  g.fillStyle = '#e6dcc6'; g.fillRect(0,0,w,h);
+  g.strokeStyle = 'rgba(170,150,110,.35)'; g.lineWidth = 1.2;
+  for (var i = 0; i < 7; i++) {
+    g.beginPath(); g.moveTo(Math.random()*w, 0);
+    g.bezierCurveTo(Math.random()*w, h*.35, Math.random()*w, h*.7, Math.random()*w, h); g.stroke();
+  }
+  g.strokeStyle = 'rgba(130,110,80,.55)'; g.lineWidth = 3;
+  [128,256,384].forEach(function(p){
+    g.beginPath();g.moveTo(p,0);g.lineTo(p,h);g.stroke();
+    g.beginPath();g.moveTo(0,p);g.lineTo(w,p);g.stroke();
+  });
+}, 512, 512, 2, 2);
+
+// Carpet (warm grey)
+var texCarpet = mkTex(function(g, w, h) {
+  g.fillStyle = '#968e84'; g.fillRect(0,0,w,h);
+  for (var i = 0; i < 1800; i++) {
+    var v = (Math.random()-.5)*16;
+    g.fillStyle = 'rgba('+(148+v)+','+(140+v)+','+(132+v)+',.4)';
+    g.fillRect(Math.random()*w, Math.random()*h, 1.5, 1.5);
+  }
+}, 256, 256, 6, 6);
+
+// Dark timber cladding (shiplap horizontal, near black)
+var texClad = mkTex(function(g, w, h) {
+  var bh = h/14;
+  for (var i = 0; i < 14; i++) {
+    var v = (i%2===0) ? 8 : -5;
+    g.fillStyle = 'rgb('+(26+v)+','+(20+v)+','+(16+v)+')';
+    g.fillRect(0, i*bh, w, bh-1);
+  }
+  g.strokeStyle = 'rgba(80,50,30,.15)'; g.lineWidth = 0.5;
+  for (var j = 0; j < 30; j++) {
+    var y = Math.random()*h;
+    g.beginPath(); g.moveTo(0,y); g.lineTo(w,y+(Math.random()-.5)*3); g.stroke();
+  }
+}, 256, 512, 4, 1);
+
+// Vertical battens (near black Blackbutt)
+var texBat = mkTex(function(g, w, h) {
+  var bw = w/12;
+  for (var i = 0; i < 12; i++) {
+    var v = (i%2===0) ? 10 : -6;
+    g.fillStyle = 'rgb('+(30+v)+','+(22+v)+','+(16+v)+')';
+    g.fillRect(i*bw+0.5, 0, bw-1.5, h);
+  }
+  g.strokeStyle = 'rgba(5,2,0,.7)'; g.lineWidth = 1.5;
+  for (var i = 0; i < 12; i++) { g.beginPath(); g.moveTo(i*bw,0); g.lineTo(i*bw,h); g.stroke(); }
+}, 256, 512, 1, 2);
+
+// Colorbond Night Sky roof (dark charcoal ribbed)
+var texRoof = mkTex(function(g, w, h) {
+  g.fillStyle = '#1c1e20'; g.fillRect(0,0,w,h);
+  var bw = w/18;
+  for (var i = 0; i < 18; i++) {
+    if (i%2===0) { g.fillStyle='#232628'; g.fillRect(i*bw,0,bw,h); }
+  }
+}, 256, 64, 10, 1);
+
+// Limewash wall (Bauwerk, warm off-white)
+var texLime = mkTex(function(g, w, h) {
+  g.fillStyle = '#ebe6dd'; g.fillRect(0,0,w,h);
+  for (var i = 0; i < 700; i++) {
+    var v = (Math.random()-.5)*28;
+    g.fillStyle = 'rgba('+(225+v)+','+(215+v)+','+(205+v)+',' +(Math.random()*.14)+')';
+    g.fillRect(Math.random()*w, Math.random()*h, Math.random()*18+3, Math.random()*18+3);
+  }
+}, 512, 512, 2, 2);
+
+// Deck boards
+var texDeck = mkTex(function(g, w, h) {
+  var bh = h/7;
+  var cs = ['#5a422c','#604830','#573e28','#5e4530'];
+  for (var i = 0; i < 7; i++) {
+    g.fillStyle = cs[i%cs.length]; g.fillRect(0, i*bh, w, bh-2);
+  }
+  g.strokeStyle = 'rgba(15,8,0,.55)'; g.lineWidth = 2;
+  for (var i = 1; i < 7; i++) { g.beginPath(); g.moveTo(0,i*bh); g.lineTo(w,i*bh); g.stroke(); }
+}, 512, 256, 4, 1);
+
+// Concrete stipple (exterior paths)
+var texStip = mkTex(function(g, w, h) {
+  g.fillStyle = '#c4bfb6'; g.fillRect(0,0,w,h);
+  for (var i = 0; i < 1000; i++) {
+    var v = (Math.random()-.5)*18;
+    g.fillStyle = 'rgba('+(190+v)+','+(185+v)+','+(178+v)+',.4)';
+    g.fillRect(Math.random()*w, Math.random()*h, 1.5, 1.5);
+  }
+}, 256, 256, 3, 3);
+
+// Kitchen benchtop (Neolith Pietra Di-Osso – silky light grey)
+var texBench = mkTex(function(g, w, h) {
+  g.fillStyle = '#d5d0ca'; g.fillRect(0,0,w,h);
+  g.strokeStyle = 'rgba(150,145,138,.25)'; g.lineWidth = 1;
+  for (var i = 0; i < 10; i++) {
+    g.beginPath(); g.moveTo(0, Math.random()*h);
+    g.bezierCurveTo(w*.3,Math.random()*h, w*.7,Math.random()*h, w,Math.random()*h); g.stroke();
+  }
+}, 512, 256, 2, 1);
+
+// ── Materials ─────────────────────────────────────────────────────────────────
+function mat(opts) { return new T.MeshStandardMaterial(opts); }
+var M = {
+  timber:  mat({map:texTimber, roughness:.55, metalness:0}),
+  conc:    mat({map:texConc,   roughness:.22, metalness:.04}),
+  trav:    mat({map:texTrav,   roughness:.28, metalness:0}),
+  carpet:  mat({map:texCarpet, roughness:.9,  metalness:0}),
+  clad:    mat({map:texClad,   roughness:.82, metalness:.02}),
+  bat:     mat({map:texBat,    roughness:.78, metalness:.02}),
+  roof:    mat({map:texRoof,   roughness:.38, metalness:.25}),
+  lime:    mat({map:texLime,   roughness:.94, metalness:0}),
+  deck:    mat({map:texDeck,   roughness:.78, metalness:0}),
+  stip:    mat({map:texStip,   roughness:.88, metalness:0}),
+  bench:   mat({map:texBench,  roughness:.08, metalness:.08}),
+  glass:   new T.MeshPhysicalMaterial({color:0x8aaabb, transparent:true, opacity:.28, roughness:.05, metalness:0}),
+  alum:    mat({color:0x111111, roughness:.3, metalness:.8}),
+  plaster: mat({color:0xf3f0eb, roughness:.94, metalness:0}),
+  ceil:    mat({color:0xf6f3ee, roughness:1,   metalness:0}),
+  cabD:    mat({color:0x2a2218, roughness:.5,  metalness:.05}),
+  cabL:    mat({color:0xddd5c8, roughness:.3,  metalness:.04}),
+  grass:   mat({color:0x4a6e3a, roughness:1,   metalness:0}),
+  pool:    new T.MeshPhysicalMaterial({color:0x3a9ab8, transparent:true, opacity:.65, roughness:0, metalness:0}),
+  gravel:  mat({color:0x9e9890, roughness:1,   metalness:0})
+};
+
+// ── Geometry helpers ──────────────────────────────────────────────────────────
+function addBox(w, h, d, material, x, y, z) {
+  var m = new T.Mesh(new T.BoxGeometry(w, h, d), material);
+  m.position.set(x, y, z);
+  m.castShadow = true;
+  m.receiveShadow = true;
+  scene.add(m);
+  return m;
+}
+// wall: x,z = centre base; y starts at 0
+function W(w, h, d, mat, x, z) { return addBox(w, h, d, mat, x, h/2, z); }
+// floor slab
+function F(w, d, mat, x, z) { return addBox(w, 0.14, d, mat, x, -0.07, z); }
+// ceiling
+function C(w, d, mat, x, z, ht) { return addBox(w, 0.1, d, mat, x, ht, z); }
+
+// ── SITE ──────────────────────────────────────────────────────────────────────
+addBox(160, 0.2, 160, M.grass,  0, -0.1, 10);  // lawn
+addBox(32,  0.15, 24, M.stip,  12,  0.05, 9);   // hardstand around house
+
+// ── FLOORS ────────────────────────────────────────────────────────────────────
+// Garage
+F(5.5, 7.5,  M.stip,   2.75, 3.75);
+// Laundry
+F(3.5, 3.5,  M.trav,   5.0,  1.75);
+// Bedroom 3
+F(5.0, 5.5,  M.timber, 9.0,  2.75);
+// Passage + entry hall
+F(10.2, 2.0, M.conc,   8.76, 8.0);
+// Bedroom 1
+F(3.66, 6.5, M.carpet, 1.83, 10.25);
+// Bathroom
+F(3.84, 4.5, M.trav,   5.58, 11.25);
+// Bedroom 2
+F(4.5,  6.5, M.carpet, 9.5,  10.25);
+// Living 2
+F(10.2, 5.5, M.timber, 8.76, 12.25);
+// PDR
+F(2.85, 2.0, M.trav,   12.43, 8.0);
+// Ensuite
+F(4.0,  4.5, M.trav,   15.85, 2.25);
+// WIR
+F(7.47, 4.5, M.carpet, 21.58, 2.25);
+// Master bedroom
+F(11.47,5.0, M.timber, 21.58, 7.0);
+// Library
+F(4.65, 5.0, M.timber, 15.93, 11.75);
+// Pantry
+F(3.5,  3.0, M.conc,   20.0,  10.5);
+// Kitchen
+F(6.82, 3.5, M.conc,   21.91, 13.25);
+// Dining + Living (gable zone)
+F(11.47,4.0, M.conc,   21.58, 16.5);
+// Deck south
+F(11.47,3.5, M.deck,   21.58, 20.25);
+// Porch west
+F(3.66, 6.0, M.deck,   1.83,  15.0);
+// Courtyard 1
+F(4.65, 5.0, M.trav,   15.93, 12.0);
+
+// ── EXTERIOR WALLS ────────────────────────────────────────────────────────────
+var EH = 3.5;  // eave height (Parapet 1 = 30.30, FFL=26.80, diff=3.5m)
+var WT = 0.2;  // wall thickness
+
+// North wall  z=0
+W(5.5,  EH, WT, M.clad, 2.75,    0);    // garage
+W(10.2, EH, WT, M.bat,  8.76,    0);    // centre
+W(4.0,  EH, WT, M.bat,  15.85,   0);    // C–D
+W(7.47, EH, WT, M.bat,  21.58,   0);    // D–E (below gable)
+
+// South wall  z=18.5
+W(3.66, EH, WT, M.clad, 1.83,  18.5);
+W(10.2, EH, WT, M.bat,  8.76,  18.5);
+W(4.0,  EH, WT, M.bat,  15.85, 18.5);
+// South gable glass (W0.13 – large triangular glazing) handled in gable section
+
+// East wall  x=25.32
+W(WT, EH, 18.5, M.bat,  25.32,  9.25);
+// West wall  x=0 (garage + bed1 only)
+W(WT, EH, 13.0, M.clad, 0,      6.5);
+
+// Garage/house party wall
+W(WT, EH, 7.5,  M.plaster, 3.66, 3.75);
+
+// C column wall (east wing west face)
+W(WT, EH, 4.5,  M.bat,     13.85, 2.25);
+W(WT, EH, 4.0,  M.bat,     13.85, 7.0);
+W(WT, EH, 5.0,  M.bat,     13.85, 16.0);
+
+// ── INTERIOR WALLS ────────────────────────────────────────────────────────────
+// Bedroom passage divider
+W(10.2, EH, WT, M.plaster, 8.76,  7.0);
+W(10.2, EH, WT, M.plaster, 8.76,  9.0);
+// Bed1 east wall
+W(WT,   EH, 6.5, M.plaster, 3.66, 10.25);
+// Laundry south
+W(3.5,  EH, WT, M.plaster, 5.0,   3.5);
+// Ensuite/WIR divide
+W(WT,   EH, 4.5, M.plaster, 17.85, 2.25);
+// Master north wall (limewash feature)
+W(11.47,EH, WT, M.lime,    21.58, 4.5);
+// Master south wall / kitchen north
+W(11.47,EH, WT, M.plaster, 21.58, 9.5);
+// Library walls
+W(4.65, EH, WT, M.lime,    15.93, 9.5);
+W(4.65, EH, WT, M.plaster, 15.93, 14.5);
+// Kitchen spine
+W(WT,   EH, 4.0, M.plaster, 18.5, 11.5);
+// Fireplace feature wall
+W(7.47, EH, WT, M.lime,    21.58, 14.5);
+
+// ── CEILINGS ─────────────────────────────────────────────────────────────────
+C(5.5,  7.5,  M.ceil, 2.75, 3.75, 2.5);   // garage lower
+C(10.2, 16.0, M.ceil, 8.76, 8.0,  2.7);   // bedroom wing
+C(11.47,9.0,  M.ceil, 21.58,4.5,  2.7);   // east wing N
+// Gable interior ceiling done via geometry below
+C(4.65, 5.0,  M.ceil, 15.93,12.0, 2.7);   // library
+
+// ── FLAT ROOF (west + centre wing) ────────────────────────────────────────────
+addBox(14.0, 0.2, 18.5, M.roof, 7.0, 3.6, 9.25);
+
+// ── GABLE ROOF over D–E columns (x=17.85–25.32, ridge E-W, gable faces N+S) ──
+(function(){
+  var gx1=17.85, gx2=25.32, gz1=0, gz2=18.5;
+  var gw = gx2-gx1;  // 7.47m
+  var gl = gz2-gz1;  // 18.5m
+  var cx = (gx1+gx2)/2; // 21.585
+  var eave=3.5, peak=6.12;
+
+  // Two roof slopes as BufferGeometry (simple triangulated quads)
+  function slope(x1, x2, y1, y2) {
+    // quad: 2 triangles, z from gz1 to gz2
+    var geo = new T.BufferGeometry();
+    var verts = new Float32Array([
+      x1,y1,gz1,  x2,y2,gz1,  x1,y1,gz2,
+      x2,y2,gz1,  x2,y2,gz2,  x1,y1,gz2
+    ]);
+    geo.setAttribute('position', new T.BufferAttribute(verts, 3));
+    geo.computeVertexNormals();
+    var m = new T.Mesh(geo, M.roof);
+    m.castShadow = true; m.receiveShadow = true;
+    scene.add(m);
+  }
+  slope(gx1, cx, eave, peak); // west slope
+  slope(gx2, cx, eave, peak); // east slope
+
+  // Gable end walls (triangular) N and S
+  function gableEnd(z) {
+    var geo = new T.BufferGeometry();
+    var verts = new Float32Array([
+      gx1,eave,z,  gx2,eave,z,  cx,peak,z
+    ]);
+    geo.setAttribute('position', new T.BufferAttribute(verts, 3));
+    geo.computeVertexNormals();
+    // South face = glass, North = batten
+    var material = (z > 9) ? M.glass : M.bat;
+    var m = new T.Mesh(geo, material);
+    m.castShadow = true;
+    scene.add(m);
+    // Also rectangular wall below gable
+    W(gw, eave, WT, (z>9)?M.glass:M.bat, cx, z);
+  }
+  gableEnd(gz1);  // north gable
+  gableEnd(gz2);  // south gable (glazed)
+
+  // Interior raked ceiling (faces downward)
+  function rCeil(x1, x2, y1, y2) {
+    var geo = new T.BufferGeometry();
+    var verts = new Float32Array([
+      x1,y1,gz1,  x1,y1,gz2,  x2,y2,gz1,
+      x2,y2,gz1,  x1,y1,gz2,  x2,y2,gz2
+    ]);
+    geo.setAttribute('position', new T.BufferAttribute(verts, 3));
+    geo.computeVertexNormals();
+    var m = new T.Mesh(geo, M.ceil);
+    m.receiveShadow = true;
+    scene.add(m);
+  }
+  rCeil(gx1, cx, eave-0.12, peak-0.12);
+  rCeil(gx2, cx, eave-0.12, peak-0.12);
+})();
+
+// ── WINDOWS (aluminium black frames + glass) ──────────────────────────────────
+function win(w, h, x, y, z, ry) {
+  ry = ry || 0;
+  var g = new T.Mesh(new T.BoxGeometry(w, h, 0.06), M.glass);
+  g.position.set(x, y+h/2, z); g.rotation.y = ry;
+  scene.add(g);
+  // frame bars
+  [[w,0.05,x,y,z],[w,0.05,x,y+h,z]].forEach(function(d){
+    var f=new T.Mesh(new T.BoxGeometry(d[0],d[1],0.08),M.alum);
+    f.position.set(d[2],d[3],d[4]); f.rotation.y=ry; scene.add(f);
+  });
+}
+win(3.5, 2.7, 19.5, 0, 18.5);   // dining south sliding
+win(3.5, 2.7, 23.5, 0, 18.5);   // living south sliding
+win(2.5, 1.6, 25.32,1.2,13.0, Math.PI/2); // kitchen east
+win(3.0, 1.5, 21.58,1.0,18.5);  // master south
+win(2.0, 1.5, 25.32,1.0,7.0, Math.PI/2);  // master east
+win(1.2, 1.2, 8.0,  0.9, 0);    // bed3 north
+win(1.0, 1.0, 5.0,  0.9, 0);    // laundry north
+win(1.2, 1.2, 7.0,  0.9,18.5);  // bed2 south
+win(4.0, 2.7, 15.93,0,  9.5);   // library courtyard N
+win(4.0, 2.7, 15.93,0,14.5);    // library courtyard S
+
+// ── KITCHEN JOINERY ───────────────────────────────────────────────────────────
+// Island
+addBox(3.4, 0.9, 1.0, M.cabD,  21.58, 0.45, 13.0);
+addBox(3.5, 0.06,1.1, M.bench, 21.58, 0.93, 13.0);
+// Wall run
+addBox(3.0, 0.88,0.55,M.cabD,  23.0,  0.44,12.3);
+addBox(3.05,0.06,0.58,M.bench, 23.0,  0.90,12.3);
+// Uppers
+addBox(3.0, 0.7, 0.38,M.cabD,  23.0,  2.35,12.3);
+// Rangehood
+addBox(1.1, 0.18,0.58,M.alum,  23.0,  2.05,12.3);
+
+// ── LIBRARY SHELVING ──────────────────────────────────────────────────────────
+for (var s = 0; s < 5; s++) {
+  addBox(3.4,0.04,0.28,M.cabL, 15.93, 0.65+s*0.52, 9.65);
+  addBox(3.4,0.04,0.28,M.cabL, 15.93, 0.65+s*0.52,13.85);
+}
+
+// ── BATHROOMS ─────────────────────────────────────────────────────────────────
+// Ensuite bath
+addBox(1.7,0.5,0.72,M.plaster,15.0, 0.25, 1.2);
+// Ensuite vanity
+addBox(1.5,0.85,0.5,M.cabD, 16.0, 0.42, 4.0);
+addBox(1.55,0.06,0.52,M.trav,16.0,0.88, 4.0);
+// Shower screen
+addBox(0.05,2.0,1.0,M.glass,14.3,1.0,2.5);
+// Bathroom vanity
+addBox(1.2,0.85,0.45,M.cabD, 5.5, 0.42,12.5);
+addBox(1.25,0.06,0.47,M.trav,5.5, 0.88,12.5);
+
+// ── LIVING FURNITURE ──────────────────────────────────────────────────────────
+// Sofa
+addBox(3.0,0.45,0.95,M.carpet, 21.58,0.22,16.4);
+addBox(3.0,0.7, 0.22,M.carpet, 21.58,0.35,16.95);
+// Coffee table
+addBox(1.2,0.4, 0.7, M.cabD,   21.58,0.2, 15.7);
+// Fireplace
+addBox(1.4,1.8, 0.1, M.trav,   21.58,0.9, 14.5);
+addBox(0.8,1.0, 0.14,M.alum,   21.58,0.5, 14.48);
+
+// ── MASTER BED ────────────────────────────────────────────────────────────────
+addBox(1.8,0.5, 2.1,M.carpet, 21.58,0.25,7.0);
+addBox(1.8,0.28,0.08,M.cabD,  21.58,0.64,5.85);
+
+// ── POOL (indicative) ─────────────────────────────────────────────────────────
+addBox(8.0, 0.3, 3.5,M.stip, -4.0, 0.1,  14.25);
+addBox(7.4, 0.15,3.0,M.pool, -4.0,-0.06, 14.25);
+// Batten pool fence
+W(WT, 1.1, 3.5, M.bat, -0.3,  14.25);
+W(WT, 1.1, 3.5, M.bat, -7.7,  14.25);
+W(8.5,1.1, WT,  M.bat, -4.0,  12.5);
+W(8.5,1.1, WT,  M.bat, -4.0,  16.0);
+
+// ── PERGOLA (west open porch) ─────────────────────────────────────────────────
+[7.5,10.0,12.5].forEach(function(pz){
+  addBox(0.1,3.2,0.1,M.alum, 3.7,  1.6, pz);
+  addBox(0.1,3.2,0.1,M.alum,-0.05, 1.6, pz);
+  addBox(3.85,0.14,0.14,M.cabD,1.82,3.2,pz);
+});
+
+// ── OUTDOOR DECK FURNITURE ────────────────────────────────────────────────────
+addBox(2.0,0.76,1.0,M.cabD,  21.58,0.38,19.6);
+[[20.5,19.6],[22.7,19.6],[21.58,18.95],[21.58,20.25]].forEach(function(p){
+  addBox(0.5,0.88,0.5,M.cabL,p[0],0.44,p[1]);
+});
+
+// ── LIGHTING ─────────────────────────────────────────────────────────────────
+var sun = new T.DirectionalLight(0xfff4d8, 2.5);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.left = -40; sun.shadow.camera.right = 40;
+sun.shadow.camera.top  =  40; sun.shadow.camera.bottom=-40;
+sun.shadow.camera.near = 0.5; sun.shadow.camera.far = 200;
+sun.shadow.bias = -0.001;
+scene.add(sun);
+sun.target.position.set(12, 0, 9);
+scene.add(sun.target);
+
+scene.add(new T.HemisphereLight(0x9ec4d8, 0x5a6e40, 0.75));
+scene.add(new T.AmbientLight(0xffe8c8, 0.3));
+
+// Interior downlights (warm 3000K)
+var dlPos = [
+  [19,2.6,13],[22,2.6,13],[24,2.6,13],
+  [21,2.6,16],[24,2.6,16],
+  [15.5,2.6,11],[15.5,2.6,13],
+  [8,2.6,10],[10,2.6,10],[8,2.6,12],
+  [2,2.6,10],[2,2.6,12],
+  [5,2.6,11],[7,2.6,11],
+  [21,2.6,7],[23,2.6,7],[16,2.6,3]
+];
+dlPos.forEach(function(p){
+  var l = new T.PointLight(0xffd080, 0.45, 7, 1.2);
+  l.position.set(p[0], p[1], p[2]);
+  scene.add(l);
+});
+
+// Time of day
+function setSun(hour) {
+  var t = (hour - 6) / 12 * Math.PI;
+  var day = Math.max(0, Math.sin(t));
+  var az = (hour - 12) / 12 * Math.PI;
+  sun.position.set(Math.sin(az)*80, Math.max(2, Math.sin(t*1.15)*80), Math.cos(az)*60);
+  sun.intensity = day * 2.5 + 0.1;
+  var r = Math.round(80 + day*130), g2 = Math.round(120+day*110), b = Math.round(160+day*90);
+  scene.background.setRGB(r/255, g2/255, b/255);
+  scene.fog.color.setRGB(r/255, g2/255, b/255);
+  renderer.toneMappingExposure = 0.85 + day*0.35;
+}
+setSun(14);
+document.getElementById('tslide').addEventListener('input', function(){
+  setSun(parseFloat(this.value));
+});
+
+// ── Room detection ────────────────────────────────────────────────────────────
+var ROOMS = [
+  {n:'Garage',         x1:0,    z1:0,    x2:5.5,  z2:7.5},
+  {n:'Laundry',        x1:3.66, z1:0,    x2:6.5,  z2:3.5},
+  {n:'Bedroom 3',      x1:6.5,  z1:0,    x2:12,   z2:5.5},
+  {n:'Ensuite',        x1:13.85,z1:0,    x2:17.85,z2:4.5},
+  {n:'Walk-In Robe',   x1:17.85,z1:0,    x2:25.32,z2:4.5},
+  {n:'Master Bedroom', x1:13.85,z1:4.5,  x2:25.32,z2:9.5},
+  {n:'Passage',        x1:3.66, z1:7,    x2:13.85,z2:9},
+  {n:'Bedroom 1',      x1:0,    z1:7,    x2:3.66, z2:13.5},
+  {n:'Bathroom',       x1:3.66, z1:9,    x2:7.5,  z2:13.5},
+  {n:'Bedroom 2',      x1:7.5,  z1:7,    x2:12,   z2:13.5},
+  {n:'Powder Room',    x1:11,   z1:7,    x2:13.85,z2:9},
+  {n:'Living 2',       x1:3.66, z1:9,    x2:13.85,z2:15},
+  {n:'Library',        x1:13.85,z1:9.5,  x2:18.5, z2:14.5},
+  {n:'Pantry',         x1:18.5, z1:9,    x2:22,   z2:12},
+  {n:'Kitchen',        x1:18.5, z1:12,   x2:25.32,z2:15},
+  {n:'Dining',         x1:13.85,z1:15,   x2:25.32,z2:18.5},
+  {n:'Living Room',    x1:13.85,z1:14.5, x2:18.5, z2:15},
+  {n:'South Deck',     x1:17.85,z1:18.5, x2:25.32,z2:22},
+  {n:'Open Porch',     x1:0,    z1:7,    x2:3.66, z2:18},
+  {n:'Courtyard 1',    x1:13.85,z1:9.5,  x2:18.5, z2:14.5},
+];
+var lblEl = document.getElementById('lbl');
+function roomAt(x, z) {
+  for (var i = 0; i < ROOMS.length; i++) {
+    var r = ROOMS[i];
+    if (x>=r.x1 && x<=r.x2 && z>=r.z1 && z<=r.z2) return r.n;
+  }
+  return 'Exterior';
+}
+
+// ── Navigation ────────────────────────────────────────────────────────────────
+var keys = {};
+document.addEventListener('keydown', function(e){ keys[e.code]=true; });
+document.addEventListener('keyup',   function(e){ delete keys[e.code]; });
+
+var yaw = Math.PI, pitch = 0; // facing north (into house)
+var mouseDown = false, lastMX = 0, lastMY = 0;
+
+// Mouse look (no pointer lock needed — just drag)
+document.getElementById('c').addEventListener('mousedown', function(e){
+  mouseDown=true; lastMX=e.clientX; lastMY=e.clientY;
+});
+document.addEventListener('mouseup',   function(){ mouseDown=false; });
+document.addEventListener('mousemove', function(e){
+  if (!mouseDown) return;
+  yaw   -= (e.clientX - lastMX) * 0.003;
+  pitch  = Math.max(-1.3, Math.min(1.3, pitch - (e.clientY - lastMY)*0.003));
+  lastMX = e.clientX; lastMY = e.clientY;
+});
+
+// Touch joysticks
+var jL = {x:0,y:0,id:-1}, jR = {x:0,y:0,id:-1};
+var jLEl=document.getElementById('jL'), jREl=document.getElementById('jR');
+var kLEl=document.getElementById('kL'), kREl=document.getElementById('kR');
+function jCenter(el){ var r=el.getBoundingClientRect(); return {x:r.left+r.width/2, y:r.top+r.height/2, r:r.width/2}; }
+document.addEventListener('touchstart', function(e){
+  for (var i=0;i<e.changedTouches.length;i++){
+    var t=e.changedTouches[i];
+    var cL=jCenter(jLEl), cR=jCenter(jREl);
+    if (Math.hypot(t.clientX-cL.x,t.clientY-cL.y)<cL.r*1.6) jL.id=t.identifier;
+    else if (Math.hypot(t.clientX-cR.x,t.clientY-cR.y)<cR.r*1.6) jR.id=t.identifier;
+  }
+},{passive:true});
+document.addEventListener('touchmove', function(e){
+  for (var i=0;i<e.changedTouches.length;i++){
+    var t=e.changedTouches[i];
+    if (t.identifier===jL.id){
+      var c=jCenter(jLEl),dx=t.clientX-c.x,dy=t.clientY-c.y;
+      var mg=Math.min(Math.hypot(dx,dy),c.r), ag=Math.atan2(dy,dx);
+      jL.x=Math.cos(ag)*mg/c.r; jL.y=Math.sin(ag)*mg/c.r;
+      kLEl.style.transform='translate(calc(-50% + '+(jL.x*28)+'px),calc(-50% + '+(jL.y*28)+'px))';
+    }
+    if (t.identifier===jR.id){
+      var c=jCenter(jREl),dx=t.clientX-c.x,dy=t.clientY-c.y;
+      var mg=Math.min(Math.hypot(dx,dy),c.r), ag=Math.atan2(dy,dx);
+      jR.x=Math.cos(ag)*mg/c.r; jR.y=Math.sin(ag)*mg/c.r;
+      kREl.style.transform='translate(calc(-50% + '+(jR.x*28)+'px),calc(-50% + '+(jR.y*28)+'px))';
+    }
+  }
+},{passive:true});
+document.addEventListener('touchend', function(e){
+  for (var i=0;i<e.changedTouches.length;i++){
+    var t=e.changedTouches[i];
+    if (t.identifier===jL.id){ jL.x=0;jL.y=0;jL.id=-1;kLEl.style.transform='translate(-50%,-50%)'; }
+    if (t.identifier===jR.id){ jR.x=0;jR.y=0;jR.id=-1;kREl.style.transform='translate(-50%,-50%)'; }
+  }
+},{passive:true});
+
+// ── Animation loop ────────────────────────────────────────────────────────────
+var clock = new T.Clock();
+var frame = 0;
+function animate() {
+  requestAnimationFrame(animate);
+  var dt = Math.min(clock.getDelta(), 0.05);
+  frame++;
+
+  // Look from right joystick
+  yaw   -= jR.x * 0.045;
+  pitch  = Math.max(-1.3, Math.min(1.3, pitch - jR.y*0.035));
+
+  // Move vectors
+  var spd = (keys['ShiftLeft']||keys['ShiftRight']) ? 8 : 4;
+  var fwd   = new T.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+  var right = new T.Vector3( Math.cos(yaw), 0, -Math.sin(yaw));
+
+  if (keys['KeyW']||keys['ArrowUp'])    camera.position.addScaledVector(fwd,   spd*dt);
+  if (keys['KeyS']||keys['ArrowDown'])  camera.position.addScaledVector(fwd,  -spd*dt);
+  if (keys['KeyA']||keys['ArrowLeft'])  camera.position.addScaledVector(right,-spd*dt);
+  if (keys['KeyD']||keys['ArrowRight']) camera.position.addScaledVector(right, spd*dt);
+  if (keys['KeyE']||keys['KeyQ']) camera.position.y += (keys['KeyE']?1:-1)*spd*dt;
+
+  // Left joystick move
+  camera.position.addScaledVector(right, jL.x*spd*dt);
+  camera.position.addScaledVector(fwd,  -jL.y*spd*dt);
+
+  // Height limits
+  camera.position.y = Math.max(0.3, Math.min(10, camera.position.y));
+
+  camera.rotation.order = 'YXZ';
+  camera.rotation.y = yaw;
+  camera.rotation.x = pitch;
+
+  // Room label every 12 frames
+  if (frame % 12 === 0) {
+    var rn = roomAt(camera.position.x, camera.position.z);
+    if (lblEl.textContent !== rn) lblEl.textContent = rn;
+  }
+
+  renderer.render(scene, camera);
+}
+
+window.addEventListener('resize', function(){
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+animate();
+</script>
+</body>
+</html>
